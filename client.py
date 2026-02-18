@@ -1,33 +1,17 @@
+import base64
+
 import streamlit as st
 import requests
 from PIL import Image
 import io
 import json
-import time
 from pathlib import Path
+from utils.ollama_client import generate_text
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
-DELL_SERVER_URL = "http://localhost:8000"
-USE_MOCK = True
-# ──────────────────────────────────────────────────────────────────────────────
+from utils.ollama_client import generate_with_image
+from core.recipe import chat_with_chef
+from core.recipe import ingredients_to_recipe
 
-# ── MOCK DATA ─────────────────────────────────────────────────────────────────
-MOCK_SCAN_RESPONSE = {
-    "ingredients_detected": [
-        "eggs", "cheddar cheese", "bell pepper",
-        "leftover pasta", "butter", "garlic"
-    ]
-}
-
-MOCK_CHAT_RESPONSE = {
-    "response": (
-        "With what you have, I'd suggest a **Garlic Frittata**! "
-        "Beat your eggs, sauté the garlic and bell pepper in butter, "
-        "pour the eggs over, top with cheddar, and finish under the broiler. "
-        "Quick, hearty, and zero waste. Want me to give you the full step-by-step?"
-    )
-}
-# ──────────────────────────────────────────────────────────────────────────────
 
 # ── INVENTORY HELPERS ─────────────────────────────────────────────────────────
 INVENTORY_FILE = Path("inventory.json")
@@ -120,35 +104,25 @@ if image is not None:
     st.image(image, caption="Fridge scan", use_container_width=True)
 
 if st.button("🔍 Scan Ingredients", type="primary", disabled=image_bytes is None):
-    if USE_MOCK:
-        st.info("🔧 Mock mode ON — Dell not connected yet.")
-        time.sleep(1.5)
-        scan_result = MOCK_SCAN_RESPONSE
-    else:
+    assert image_bytes is not None
+    with st.spinner("Scanning ingredients..."):
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        prompt = (
+            "List every food item you see in this fridge image. "
+            "Return as comma-separated list only. No extra text."
+        )
+        new_items: list = []
         try:
-            resp = requests.post(
-                f"{DELL_SERVER_URL}/scan-photo",
-                files={"image": image_bytes},
-                timeout=60,
-            )
-            scan_result = resp.json()
-        except requests.exceptions.ConnectionError:
-            st.error("❌ Cannot reach Dell server. Check IP and confirm server.py is running.")
-            st.stop()
-        except requests.exceptions.Timeout:
-            st.error("⏳ Request timed out. Model may still be loading — try again in 30s.")
-            st.stop()
+            raw = generate_with_image(prompt, image_b64)
+            new_items = [item.strip() for item in raw.split(",") if item.strip()]
         except Exception as e:
-            st.error(f"Something went wrong: {e}")
+            st.error(f"Scan failed: {e}")
             st.stop()
 
-    new_items = scan_result["ingredients_detected"]
     existing = load_inventory()
     merged = merge_ingredients(existing, new_items)
     save_inventory(merged)
-
     st.success(f"✅ {len(new_items)} ingredients detected. Inventory now has {len(merged)} items.")
-    time.sleep(1.0)
     st.rerun()
 
 st.divider()
@@ -157,6 +131,33 @@ st.divider()
 st.subheader("💬 What Can I Cook?")
 
 current_inventory = load_inventory()
+
+
+def build_chat_prompt(user_message: str, inventory: list[str], history: list[dict]) -> str:
+    inv = "\n".join(f"- {x}" for x in inventory)
+
+    recent = history[-6:]
+    history_txt = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent)
+
+    return f"""You are an AI chef assistant.
+
+Rules:
+- Prioritize using the inventory items as primary ingredients.
+- You may add at most 3 pantry staples from: salt, pepper, oil, water, sugar, soy sauce, butter, garlic, onion.
+- If the user asks "what can I cook", propose 2 options max, each with short steps.
+- If the user asks for one recipe, return one detailed recipe with steps.
+- No unnecessary commentary.
+
+Current inventory:
+{inv}
+
+Conversation so far:
+{history_txt}
+
+USER: {user_message}
+ASSISTANT:
+"""
+
 
 if not current_inventory:
     st.warning("Scan some ingredients first — then ask me what to cook.")
@@ -176,39 +177,12 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Chef is thinking..."):
-                if USE_MOCK:
-                    time.sleep(1.5)
-                    assistant_response = MOCK_CHAT_RESPONSE["response"]
-                else:
-                    try:
-                        resp = requests.post(
-                            f"{DELL_SERVER_URL}/chat",
-                            json={
-                                "message": user_input,
-                                "inventory": current_inventory,
-                                "history": st.session_state.chat_history[:-1],
-                            },
-                            headers={"Content-Type": "application/json"},
-                            timeout=120,
-                        )
-                        assistant_response = resp.json()["response"]
-                    except requests.exceptions.ConnectionError:
-                        st.error("❌ Cannot reach Dell server. Check IP and confirm server.py is running.")
-                        st.stop()
-                    except requests.exceptions.Timeout:
-                        st.error("⏳ Request timed out. Model may still be loading — try again in 30s.")
-                        st.stop()
-                    except Exception as e:
-                        st.error(f"Something went wrong: {e}")
-                        st.stop()
-
+                
+                assistant_response = chat_with_chef(
+                    user_message=user_input,
+                    inventory=current_inventory,
+                    history=st.session_state.chat_history[:-1],  # exclude current user message
+                )
                 st.markdown(assistant_response)
 
-        st.session_state.chat_history.append(
-            {"role": "assistant", "content": assistant_response}
-        )
-
-    if st.session_state.chat_history:
-        if st.button("🗑️ Clear Chat"):
-            st.session_state.chat_history = []
-            st.rerun()
+        st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})

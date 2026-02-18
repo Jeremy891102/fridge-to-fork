@@ -7,7 +7,6 @@ the Ollama vision API through the ollama_client module.
 from pathlib import Path
 from typing import Optional
 
-from utils.ollama_client import chat_with_image
 
 # Prompt template for ingredient extraction
 INGREDIENT_PROMPT: str = (
