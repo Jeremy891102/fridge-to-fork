@@ -15,6 +15,7 @@ load_dotenv()
 GB10_IP: str = os.getenv("GB10_IP", "localhost")
 OLLAMA_PORT: str = os.getenv("OLLAMA_PORT", "11434")
 MODEL: str = os.getenv("MODEL", "llava:13b")
+CHAT_MODEL: str = os.getenv("CHAT_MODEL", "llama3:8b")
 
 BASE_URL: str = f"http://{GB10_IP}:{OLLAMA_PORT}"
 
@@ -87,7 +88,7 @@ def generate_text(prompt: str) -> str:
         resp = requests.post(
             f"{BASE_URL}/api/generate",
             json={
-                "model": MODEL,
+                "model": CHAT_MODEL,
                 "prompt": prompt,
                 "stream": False,
             },
