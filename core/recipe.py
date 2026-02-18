@@ -6,7 +6,6 @@ suggestions using the Ollama text generation API.
 
 from typing import Optional
 
-from utils.ollama_client import chat_text_only
 
 import re
 
