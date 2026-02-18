@@ -2,5 +2,7 @@
 venv/
 __pycache__/
 *.pyc
-.DS_Storeinventory.json
+.DS_Store
+inventory.json
 ftf-venv/
+.venv/
