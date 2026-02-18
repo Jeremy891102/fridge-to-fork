@@ -79,7 +79,32 @@ cp .env.example .env
 # MODEL=llava:13b           # Model name to use
 ```
 
-### 5. Run the Application
+### 5. Test Ollama Connection (隊友 pull 下來後必做)
+
+確認能打到 Ollama 再跑 app：
+
+```bash
+# 方式一：跑內建測試（健康檢查 + 一句話生成）
+python utils/ollama_client.py
+```
+
+預期輸出類似：
+```
+Health check: True
+Text test:  Hello
+```
+
+若連線失敗會報錯或 `Health check: False`。請檢查：
+- 是否有建立 `.env`（`cp .env.example .env`）
+- `.env` 裡的 `GB10_IP`、`OLLAMA_PORT` 是否與實際 Ollama 伺服器一致
+- 本機或網路能否連到該 IP（例如 `curl http://<GB10_IP>:<OLLAMA_PORT>`）
+
+```bash
+# 方式二：較詳細的測試腳本（含目前使用的 BASE_URL）
+python scripts/test_ollama.py
+```
+
+### 6. Run the Application
 
 ```bash
 streamlit run app.py
