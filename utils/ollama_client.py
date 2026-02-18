@@ -60,6 +60,7 @@ def generate_with_image(prompt: str, image_base64: str) -> str:
                 "prompt": prompt,
                 "images": [image_base64],
                 "stream": False,
+                "keep_alive": -1,
             },
             timeout=60,
         )
@@ -91,6 +92,7 @@ def generate_text(prompt: str) -> str:
                 "model": CHAT_MODEL,
                 "prompt": prompt,
                 "stream": False,
+                "keep_alive": -1,
             },
             timeout=60,
         )
