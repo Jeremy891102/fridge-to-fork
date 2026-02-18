@@ -6,8 +6,11 @@ from PIL import Image
 import io
 import json
 from pathlib import Path
+from utils.ollama_client import generate_text
 
 from utils.ollama_client import generate_with_image
+from core.recipe import chat_with_chef
+from core.recipe import ingredients_to_recipe
 
 
 # ── INVENTORY HELPERS ─────────────────────────────────────────────────────────
@@ -129,6 +132,33 @@ st.subheader("💬 What Can I Cook?")
 
 current_inventory = load_inventory()
 
+
+def build_chat_prompt(user_message: str, inventory: list[str], history: list[dict]) -> str:
+    inv = "\n".join(f"- {x}" for x in inventory)
+
+    recent = history[-6:]
+    history_txt = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent)
+
+    return f"""You are an AI chef assistant.
+
+Rules:
+- Prioritize using the inventory items as primary ingredients.
+- You may add at most 3 pantry staples from: salt, pepper, oil, water, sugar, soy sauce, butter, garlic, onion.
+- If the user asks "what can I cook", propose 2 options max, each with short steps.
+- If the user asks for one recipe, return one detailed recipe with steps.
+- No unnecessary commentary.
+
+Current inventory:
+{inv}
+
+Conversation so far:
+{history_txt}
+
+USER: {user_message}
+ASSISTANT:
+"""
+
+
 if not current_inventory:
     st.warning("Scan some ingredients first — then ask me what to cook.")
 else:
@@ -147,14 +177,12 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Chef is thinking..."):
-                assistant_response = "TODO: wire to ollama_client.generate_text()"
+                
+                assistant_response = chat_with_chef(
+                    user_message=user_input,
+                    inventory=current_inventory,
+                    history=st.session_state.chat_history[:-1],  # exclude current user message
+                )
                 st.markdown(assistant_response)
 
-        st.session_state.chat_history.append(
-            {"role": "assistant", "content": assistant_response}
-        )
-
-    if st.session_state.chat_history:
-        if st.button("🗑️ Clear Chat"):
-            st.session_state.chat_history = []
-            st.rerun()
+        st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
