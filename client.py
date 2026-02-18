@@ -9,6 +9,7 @@ from pathlib import Path
 from utils.ollama_client import generate_text
 
 from utils.ollama_client import generate_with_image
+from core.recipe import chat_with_chef
 from core.recipe import ingredients_to_recipe
 
 
@@ -176,12 +177,12 @@ else:
 
         with st.chat_message("assistant"):
             with st.spinner("Chef is thinking..."):
-                prompt = build_chat_prompt(
+                
+                assistant_response = chat_with_chef(
                     user_message=user_input,
                     inventory=current_inventory,
-                    history=st.session_state.chat_history,
+                    history=st.session_state.chat_history[:-1],  # exclude current user message
                 )
-                assistant_response = generate_text(prompt)
                 st.markdown(assistant_response)
 
         st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})

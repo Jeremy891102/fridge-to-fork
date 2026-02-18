@@ -5,59 +5,57 @@ suggestions using the Ollama text generation API.
 """
 
 from typing import Optional
-
+from utils.ollama_client import generate_text as chat_text_only
 
 import re
 
 # Recipe prompt template
-RECIPE_PROMPT_TEMPLATE = """You are a practical home cook.
 
-Create ONE recipe using the ingredients provided.
 
-Hard rules:
-- Use ONLY ingredients from the list. You may add at most 5 common pantry staples total
-  (salt, pepper, water, cooking oil, soy sauce, sugar, butter, garlic, onion, etc.).
-- If the provided ingredients are insufficient, choose the simplest feasible dish and say what is missing.
-- No extra commentary. Output the recipe only.
+RECIPE_PROMPT_TEMPLATE = """
+You are an experienced home chef who thinks practically and creatively.
 
-Output format (exact headings):
-Recipe Name:
-Prep Time:
-Cook Time:
-Servings:
+You have access to the following current ingredients:
+{inv}
 
-Ingredients Used:
-- (bullet list)
+You can:
+- Create recipes (simple or detailed)
+- Suggest substitutions
+- Recommend storage methods or shelf life
+- Suggest meal ideas based on what's available
+- Answer general food-related questions
 
-Optional Pantry Staples (<=3):
-- (bullet list or write "None")
+Guidelines:
+- Prioritize using available ingredients.
+- You may assume common pantry staples (salt, pepper, oil, sugar, flour, etc.) when reasonable.
+- If something essential is missing, clearly explain what's needed and suggest alternatives.
+- Respond naturally, like a real chef speaking to a home cook.
+- Adapt detail level to the user's question — short answers for simple questions, full recipes when asked.
+- If the question is not food-related, politely redirect to cooking topics.
 
-Steps:
-1.
-2.
-3.
+If giving a recipe, structure it clearly (name, ingredients, steps), but you do NOT need to follow a rigid template.
 
-Notes (optional, 1-2 lines max):
-- (optional)
+Conversation so far:
+{history_txt}
 
-Ingredients list:
-{ingredients}
+USER: {user_message}
+ASSISTANT:
 """
 
-def _looks_valid(text: str) -> bool:
-    if not text:
-        return False
 
-    t = text.lower()
-
-    required_sections = [
-        "recipe name:",
-        "ingredients used:",
-        "steps:"
-    ]
-
-    return all(section in t for section in required_sections)
-
+def chat_with_chef(
+    user_message: str,
+    inventory: list[str],
+    history: list[dict],
+) -> str:
+    inv = _format_list(inventory)
+    history_txt = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in history[-6:]
+    )
+    prompt = RECIPE_PROMPT_TEMPLATE.format(
+        inv=inv, history_txt=history_txt, user_message=user_message
+    )
+    return chat_text_only(prompt)
 
 
 def _normalize_ingredient(s: str) -> str:
@@ -175,16 +173,7 @@ def ingredients_to_recipe(
     if not recipe:
         return ""
 
-    if not _looks_valid(recipe):
-        # retry once with an even stricter reminder (minimal extra tokens)
-        stricter = prompt + "\n\nIMPORTANT: Follow the OUTPUT FORMAT exactly. Include 'Recipe Name:' and 'Steps:' headings."
-        try:
-            recipe2 = chat_text_only(stricter)
-            recipe2 = (recipe2 or "").strip()
-            if recipe2 and _looks_valid(recipe2):
-                return recipe2
-        except Exception:
-            pass
+
 
     return recipe   
 
