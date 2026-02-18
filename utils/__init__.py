@@ -4,6 +4,14 @@ This package contains utility modules for API communication and other
 helper functions.
 """
 
-from utils.ollama_client import chat_text_only, chat_with_image
+from utils.ollama_client import (
+    generate_text,
+    generate_with_image,
+    health_check,
+)
 
-__all__ = ["chat_with_image", "chat_text_only"]
+__all__ = [
+    "generate_text",
+    "generate_with_image",
+    "health_check",
+]

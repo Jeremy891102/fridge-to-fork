@@ -229,3 +229,129 @@ Issues and Pull Requests are welcome!
 ## 📧 Contact
 
 For questions or suggestions, please contact via GitHub Issues.
+
+## 分工與完整 Pipeline
+
+---
+
+## 三人分工
+
+| 人 | 負責檔案 | 狀態 |
+|----|---------|------|
+| **你 (Jeremy)** | `utils/ollama_client.py` | 🔨 進行中 |
+| **隊友 A** | `core/vision.py` | ⏳ 等你完成 |
+| **隊友 B** | `core/recipe.py` | ⏳ 等你完成 |
+| **整合（三人一起）** | `app.py` | ⏳ 最後做 |
+
+---
+
+## 完整 Pipeline
+
+```
+用戶上傳冰箱照片 (app.py)
+         ↓
+  轉成 base64 (app.py)
+         ↓
+extract_ingredients(image_bytes)  ← 隊友A寫
+         ↓
+generate_with_image(prompt, base64) ← 你寫
+         ↓
+POST /api/generate to GB10 Ollama
+         ↓
+回傳 "eggs, tomatoes, cheese, milk"
+         ↓
+parse 成 list ["eggs","tomatoes"...]  ← 隊友A寫
+         ↓
+顯示食材清單 (app.py)
+         ↓
+用戶點 Generate Recipe
+         ↓
+generate_recipe(ingredients)  ← 隊友B寫
+         ↓
+generate_text(prompt)  ← 你寫
+         ↓
+POST /api/generate to GB10 Ollama
+         ↓
+回傳完整食譜文字
+         ↓
+顯示食譜 (app.py)
+```
+
+---
+
+## 每個檔案的細節
+
+### 你 → `utils/ollama_client.py`
+```
+輸入：prompt (str), image_base64 (str, 選填)
+輸出：Ollama 回傳的文字 (str)
+對外暴露：
+  - health_check()
+  - generate_with_image()
+  - generate_text()
+```
+
+### 隊友 A → `core/vision.py`
+```
+輸入：image_bytes (用戶上傳的原始圖片)
+輸出：ingredients list ["egg", "milk", ...]
+步驟：
+  1. image_bytes → base64 string
+  2. 呼叫 generate_with_image()
+  3. 把回傳字串 split by "," → list
+  4. 清理空白 strip()
+Prompt 用這個：
+  "List every food item you see in this fridge image. 
+   Return as comma-separated list only. No extra text."
+```
+
+### 隊友 B → `core/recipe.py`
+```
+輸入：ingredients list ["egg", "milk", ...]
+輸出：食譜文字 (str)
+步驟：
+  1. list → join 成字串 "egg, milk, ..."
+  2. 呼叫 generate_text()
+  3. 直接回傳食譜文字
+Prompt 用這個：
+  "You are a gourmet chef. Create a detailed recipe 
+   using ONLY these ingredients: {ingredients}. 
+   Include: dish name, prep time, step-by-step instructions."
+```
+
+### 整合 → `app.py`（最後一起做）
+```
+步驟：
+  1. health_check() → 確認 GB10 連線
+  2. st.file_uploader → 拿到 image_bytes
+  3. 呼叫 extract_ingredients(image_bytes)
+  4. 顯示食材
+  5. 呼叫 generate_recipe(ingredients)
+  6. 顯示食譜
+```
+
+---
+
+## 開發順序
+
+```
+Step 1: 你完成 ollama_client.py 並測試通過
+           ↓
+Step 2: push 到 main
+           ↓
+Step 3: 隊友 A & B 同時開始（各自 branch）
+           ↓
+Step 4: 各自測試完 push PR
+           ↓
+Step 5: 三人一起整合 app.py
+           ↓
+Step 6: Demo！
+```
+
+---
+
+## 現在行動
+
+- **你** → 繼續完成 `ollama_client.py` → 測試 → push main
+- **隊友 A** → 等你 push 完，clone 最新 main，開 `feat/vision` branch
+- **隊友 B** → 等你 push 完，clone 最新 main，開 `feat/recipe` branch
