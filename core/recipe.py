@@ -8,16 +8,84 @@ from typing import Optional
 
 from utils.ollama_client import chat_text_only
 
+import re
+
 # Recipe prompt template
-RECIPE_PROMPT_TEMPLATE: str = """Given these ingredients, suggest one simple recipe. Format your response with:
-1. Recipe name
-2. Ingredients (use the list below, add minimal pantry staples if needed)
-3. Step-by-step instructions
+RECIPE_PROMPT_TEMPLATE = """You are a practical home cook.
 
-Ingredients:
+Create ONE recipe using the ingredients provided.
+
+Hard rules:
+- Use ONLY ingredients from the list. You may add at most 5 common pantry staples total
+  (salt, pepper, water, cooking oil, soy sauce, sugar, butter, garlic, onion, etc.).
+- If the provided ingredients are insufficient, choose the simplest feasible dish and say what is missing.
+- No extra commentary. Output the recipe only.
+
+Output format (exact headings):
+Recipe Name:
+Prep Time:
+Cook Time:
+Servings:
+
+Ingredients Used:
+- (bullet list)
+
+Optional Pantry Staples (<=3):
+- (bullet list or write "None")
+
+Steps:
+1.
+2.
+3.
+
+Notes (optional, 1-2 lines max):
+- (optional)
+
+Ingredients list:
 {ingredients}
+"""
 
-Reply with the full recipe only."""
+def _looks_valid(text: str) -> bool:
+    if not text:
+        return False
+
+    t = text.lower()
+
+    required_sections = [
+        "recipe name:",
+        "ingredients used:",
+        "steps:"
+    ]
+
+    return all(section in t for section in required_sections)
+
+
+
+def _normalize_ingredient(s: str) -> str:
+    """Light normalization to stabilize prompts."""
+    s = s.strip().lower()
+    s = re.sub(r"^[-*•\d\.\)\s]+", "", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _format_list(items: list[str]) -> str:
+    return "\n".join(f"- {x}" for x in items)
+
+# simple check for basic recipe structure; we can add more complex validation later
+def _looks_valid(text: str) -> bool:
+    if not text:
+        return False
+
+    t = text.lower()
+
+    required_sections = [
+        "recipe name:",
+        "ingredients used:",
+        "steps:"
+    ]
+
+    return all(section in t for section in required_sections)
+
 
 
 def ingredients_to_recipe(
@@ -46,8 +114,6 @@ def ingredients_to_recipe(
         requests.RequestException: If the API request fails.
 
     TODO:
-        - Add input validation (non-empty ingredients list)
-        - Improve prompt engineering for better recipe quality
         - Add recipe formatting (markdown, structured JSON)
         - Support multiple recipe suggestions
         - Add recipe metadata (cooking time, difficulty, servings)
@@ -63,39 +129,66 @@ def ingredients_to_recipe(
         - Add cooking tips and variations
         - Support multi-step recipe generation with user feedback
     """
-    # TODO: Add input validation
+    # Input validation
     if not ingredients:
         raise ValueError("Ingredients list cannot be empty")
 
-    # TODO: Normalize ingredients before generating recipe
-    # normalized = [normalize_ingredient_name(ing) for ing in ingredients]
+    normed: list[str] = []
+    seen = set()
+    for ing in ingredients:
+        n = _normalize_ingredient(ing)
+        if not n:
+            continue
+        if n not in seen:
+            seen.add(n)
+            normed.append(n)
+    
+    if not normed:
+        raise ValueError("No valid ingredients after normalization; check input formatting")
+    # Normalize ingredients before generating recipe
+    ingredient_list = _format_list(normed)
 
-    # Build prompt with optional parameters
-    # TODO: Enhance prompt with dietary restrictions and cuisine type
-    ingredient_list = "\n".join(f"- {ingredient}" for ingredient in ingredients)
+    # 2) Normalize optional controls
 
-    prompt = RECIPE_PROMPT_TEMPLATE.format(ingredients=ingredient_list)
+    restrictions = dietary_restrictions or []
+    restrictions = [_normalize_ingredient(r) for r in restrictions if _normalize_ingredient(r)]
+    restrictions_str = ", ".join(restrictions) if restrictions else "None"
 
-    # TODO: Add dietary restrictions to prompt if provided
-    if dietary_restrictions:
-        restrictions_str = ", ".join(dietary_restrictions)
-        prompt += f"\n\nDietary restrictions: {restrictions_str}"
+    cuisine = (cuisine_type or "").strip()
+    cuisine_str = cuisine if cuisine else "Any"
 
-    # TODO: Add cuisine type to prompt if provided
-    if cuisine_type:
-        prompt += f"\n\nPreferred cuisine type: {cuisine_type}"
 
+
+    prompt = RECIPE_PROMPT_TEMPLATE.format(ingredients=ingredient_list,
+                                           dietary_restrictions=restrictions_str,
+                                           cuisine_type=cuisine_str)
+    
+
+    # 3) Call the model to generate a recipe
     try:
         recipe = chat_text_only(prompt)
     except Exception as e:
-        # TODO: Implement proper error handling and logging
-        # TODO: Return empty string or raise custom exception?
+        print(f"Error generating recipe: {e}")
         return ""
 
-    # TODO: Parse and validate recipe structure
-    # TODO: Format recipe nicely (markdown formatting)
+    # Parse and validate recipe structure
+    recipe = (recipe or "").strip()
+    if not recipe:
+        return ""
 
-    return recipe
+    if not _looks_valid(recipe):
+        # retry once with an even stricter reminder (minimal extra tokens)
+        stricter = prompt + "\n\nIMPORTANT: Follow the OUTPUT FORMAT exactly. Include 'Recipe Name:' and 'Steps:' headings."
+        try:
+            recipe2 = chat_text_only(stricter)
+            recipe2 = (recipe2 or "").strip()
+            if recipe2 and _looks_valid(recipe2):
+                return recipe2
+        except Exception:
+            pass
+
+    return recipe   
+
 
 
 def parse_recipe(recipe_text: str) -> dict[str, str]:
