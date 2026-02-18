@@ -20,14 +20,7 @@ Snap your fridge. Chat with your personal AI chef. **100% local** — no cloud, 
 
 ## Architecture
 
-```
-┌─────────────────┐      Tailscale       ┌──────────────────────────────────┐
-│  Mac            │  ◄────────────────►  │  Dell Pro Max (GB10)             │
-│  Streamlit UI   │      secure tunnel    │  Ollama                          │
-│  (client.py)    │                       │  ├── LLaVA 13b   (vision)       │
-└─────────────────┘                       │  └── LLaMA 3.1:8b (recipes)     │
-                                          └──────────────────────────────────┘
-```
+![Architecture](assets/architecture.png)
 
 ---
 
