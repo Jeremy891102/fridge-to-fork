@@ -95,6 +95,7 @@ def generate_text(prompt: str) -> str:
                 "prompt": prompt,
                 "stream": False,
                 "keep_alive": -1,
+                "options": {"temperature": 0.3},
             },
             timeout=60,
         )
@@ -127,6 +128,7 @@ def generate_text_stream(prompt: str):
                 "prompt": prompt,
                 "stream": True,
                 "keep_alive": -1,
+                "options": {"temperature": 0.3},
             },
             stream=True,
             timeout=120,
@@ -142,6 +144,48 @@ def generate_text_stream(prompt: str):
                     break
     except Exception as e:
         raise Exception(f"Text stream API failed: {e}") from e
+
+
+def generate_chat_stream(messages: list[dict]):
+    """Yield response tokens using the /api/chat endpoint with role-separated messages.
+
+    Uses Ollama's chat API which properly handles system/user/assistant turn
+    separation, giving significantly better instruction-following than a flat
+    prompt string. Each message dict must have "role" and "content" keys.
+
+    Args:
+        messages: List of {"role": "system"|"user"|"assistant", "content": str}.
+
+    Yields:
+        Individual token strings from the assistant response.
+
+    Raises:
+        Exception: With message "Chat stream API failed: {e}" on error.
+    """
+    try:
+        resp = requests.post(
+            f"{BASE_URL}/api/chat",
+            json={
+                "model": CHAT_MODEL,
+                "messages": messages,
+                "stream": True,
+                "keep_alive": -1,
+                "options": {"temperature": 0.3},
+            },
+            stream=True,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                token = chunk.get("message", {}).get("content", "")
+                if token:
+                    yield token
+                if chunk.get("done"):
+                    break
+    except Exception as e:
+        raise Exception(f"Chat stream API failed: {e}") from e
 
 
 if __name__ == "__main__":

@@ -6,3 +6,4 @@ __pycache__/
 inventory.json
 ftf-venv/
 .venv/
+shopping_list.json
