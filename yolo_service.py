@@ -87,6 +87,29 @@ def health():
     return {"status": "ok", "service": "yolo-world"}
 
 
+@app.get("/status")
+def status():
+    """Report whether YOLO model weights are loaded (loads on first call)."""
+    try:
+        model = get_model()
+        model_id = getattr(model, "model", None)
+        model_name = getattr(model_id, "names", None) if model_id is not None else None
+        return {
+            "status": "ok",
+            "service": "yolo-world",
+            "model_loaded": True,
+            "model_id": os.getenv("YOLO_MODEL", "yolov8s-worldv2.pt"),
+            "num_prompts": len(_prompt_list) if _prompt_list else 0,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "yolo-world",
+            "model_loaded": False,
+            "error": str(e),
+        }
+
+
 @app.post("/detect")
 def detect(body: DetectRequest):
     """Run YOLO-World on image, return list of detected ingredient labels."""

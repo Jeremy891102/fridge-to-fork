@@ -1,12 +1,22 @@
 # Run YOLO World service on GB10
 
+**先在此 branch 上測試，GB10 測完沒問題再 merge 到 main。**
+
 On the **Dell GB10** machine (where Mac connects via Tailscale):
 
-## 1. Clone / pull repo
+## 1. Clone / pull 並切到 branch 測試
 
 ```bash
+# 若已有 repo
 cd /path/to/fridge-to-fork
-git pull   # or clone if first time
+git fetch origin
+git checkout model/yolo
+git pull origin model/yolo
+
+# 若第一次 clone
+git clone https://github.com/Jeremy891102/fridge-to-fork.git
+cd fridge-to-fork
+git checkout model/yolo
 ```
 
 ## 2. Python env (3.9+)
@@ -50,3 +60,7 @@ python yolo_service.py
 
 - `YOLO_PORT=8001` — port (default 8001)
 - `YOLO_MODEL=yolov8s-worldv2.pt` — model id (default)
+
+---
+
+**測試無誤後** 再在 repo 裡把 `model/yolo` merge 到 `main`。
