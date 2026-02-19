@@ -41,16 +41,8 @@ _alias_to_canonical = None
 _prompt_list = None
 
 
-# Put these canonicals first so their prompts are at the front of the class list (better recall for common fridge veggies).
-PRIORITY_CANONICALS = [
-    "carrot", "cabbage", "cucumber", "red_chili_pepper", "cauliflower",
-    "broccoli", "bell_pepper", "eggplant", "pea", "blueberry", "tomato", "onion",
-]
-
-
 def _load_ontology():
-    """Load fridge_ontology.json: canonical -> [aliases]. Build alias->canonical and flat prompt list.
-    Priority canonicals are added first so the model sees them earlier."""
+    """Load fridge_ontology.json: canonical -> [aliases]. Build alias->canonical and flat prompt list."""
     global _alias_to_canonical, _prompt_list
     if _alias_to_canonical is not None:
         return
@@ -59,10 +51,7 @@ def _load_ontology():
     if _ontology_path.exists():
         try:
             data = json.loads(_ontology_path.read_text(encoding="utf-8"))
-            ordered_keys = [k for k in PRIORITY_CANONICALS if k in data]
-            ordered_keys += [k for k in data if k not in ordered_keys]
-            for canonical in ordered_keys:
-                aliases = data[canonical]
+            for canonical, aliases in data.items():
                 for alias in aliases:
                     a = str(alias).strip()
                     if a and a not in _alias_to_canonical:
