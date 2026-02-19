@@ -109,7 +109,7 @@ def status():
             "status": "ok",
             "service": "yolo-world",
             "model_loaded": True,
-            "model_id": os.getenv("YOLO_MODEL", "yolov8s-worldv2.pt"),
+            "model_id": os.getenv("YOLO_MODEL", "yolov8m-worldv2.pt"),
             "num_prompts": len(_prompt_list) if _prompt_list else 0,
         }
     except Exception as e:
