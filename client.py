@@ -1,17 +1,13 @@
-import base64
 import hashlib
-
-import streamlit as st
-import requests
-from PIL import Image
 import io
 import json
 from pathlib import Path
-from utils.ollama_client import generate_text
 
-from utils.ollama_client import generate_with_image
-from core.recipe import chat_with_chef
-from core.recipe import ingredients_to_recipe
+import streamlit as st
+from PIL import Image
+
+from core.recipe import chat_with_chef, ingredients_to_recipe
+from core.vision import extract_ingredients
 
 
 # ── INVENTORY HELPERS ─────────────────────────────────────────────────────────
@@ -112,14 +108,8 @@ if image_bytes is not None:
     img_hash = hashlib.md5(image_bytes).hexdigest()
     if img_hash != st.session_state.last_scanned_hash:
         with st.spinner("Scanning ingredients..."):
-            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-            prompt = (
-                "List every food item you see in this fridge image. "
-                "Return as comma-separated list only. No extra text."
-            )
             try:
-                raw = generate_with_image(prompt, image_b64)
-                new_items = [item.strip() for item in raw.split(",") if item.strip()]
+                new_items = extract_ingredients(image_bytes)
                 existing = st.session_state.pending_scan or []
                 seen = {i.lower() for i in existing}
                 for item in new_items:

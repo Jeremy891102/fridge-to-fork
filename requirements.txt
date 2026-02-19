@@ -3,6 +3,11 @@ requests
 pillow
 python-dotenv
 
+# GB10 YOLO service (install on GB10 only)
+# ultralytics
+# fastapi
+# uvicorn
+
 # Development tools (optional)
 # black>=23.0.0
 # isort>=5.12.0
