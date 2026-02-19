@@ -69,11 +69,8 @@ else:
 st.divider()
 
 # ── SECTION 2: SCAN ───────────────────────────────────────────────────────────
-st.subheader("📷 Scan New Item")
-st.caption(
-    "In production, this happens automatically when you put groceries away. "
-    "Here it's exposed so you can see the pipeline in action."
-)
+st.subheader("📷 Upload fridge or ingredients photo")
+st.caption("Detection runs automatically after upload or capture — no button to press.")
 
 input_mode = st.radio(
     "Input mode",
@@ -96,18 +93,18 @@ if input_mode == "📁 Upload a photo":
         image = Image.open(io.BytesIO(image_bytes))
 
 elif input_mode == "📷 Use camera":
-    camera_file = st.camera_input("Point at your open fridge")
+    camera_file = st.camera_input("Point at your fridge or ingredients")
     if camera_file is not None:
         image_bytes = camera_file.read()
         image = Image.open(io.BytesIO(image_bytes))
 
 if image is not None:
-    st.image(image, caption="Fridge scan", use_container_width=True)
+    st.image(image, caption="Uploaded", use_container_width=True)
 
 if image_bytes is not None:
     img_hash = hashlib.md5(image_bytes).hexdigest()
     if img_hash != st.session_state.last_scanned_hash:
-        with st.spinner("Scanning ingredients..."):
+        with st.spinner("Detecting ingredients..."):
             try:
                 new_items = extract_ingredients(image_bytes)
                 existing = st.session_state.pending_scan or []
@@ -135,7 +132,7 @@ if st.session_state.pending_scan is not None:
         merged = merge_ingredients(existing, confirmed)
         save_inventory(merged)
         st.session_state.pending_scan = None
-        st.success(f"✅ {len(confirmed)} ingredients added. Inventory now has {len(merged)} items.")
+        st.success(f"✅ Added {len(confirmed)} items. Inventory now has {len(merged)} items.")
         st.rerun()
 
 st.divider()
