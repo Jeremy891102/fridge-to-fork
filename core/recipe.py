@@ -6,11 +6,42 @@ suggestions using the Ollama text generation API.
 
 from typing import Optional
 from utils.ollama_client import generate_text as chat_text_only
+from utils.ollama_client import generate_text_stream
 
 import re
 
 # Recipe prompt template
 
+
+# RECIPE_PROMPT_TEMPLATE = """
+# You are an experienced home chef who thinks practically and creatively.
+#
+# You have access to the following current ingredients:
+# {inv}
+#
+# You can:
+# - Create recipes (simple or detailed)
+# - Suggest substitutions
+# - Recommend storage methods or shelf life
+# - Suggest meal ideas based on what's available
+# - Answer general food-related questions
+#
+# Guidelines:
+# - Prioritize using available ingredients.
+# - You may assume common pantry staples (salt, pepper, oil, sugar, flour, etc.) when reasonable.
+# - If something essential is missing, clearly explain what's needed and suggest alternatives.
+# - Respond naturally, like a real chef speaking to a home cook.
+# - Adapt detail level to the user's question — short answers for simple questions, full recipes when asked.
+# - If the question is not food-related, politely redirect to cooking topics.
+#
+# If giving a recipe, structure it clearly (name, ingredients, steps), but you do NOT need to follow a rigid template.
+#
+# Conversation so far:
+# {history_txt}
+#
+# USER: {user_message}
+# ASSISTANT:
+# """
 
 RECIPE_PROMPT_TEMPLATE = """
 You are an experienced home chef who thinks practically and creatively.
@@ -33,7 +64,14 @@ Guidelines:
 - Adapt detail level to the user's question — short answers for simple questions, full recipes when asked.
 - If the question is not food-related, politely redirect to cooking topics.
 
-If giving a recipe, structure it clearly (name, ingredients, steps), but you do NOT need to follow a rigid template.
+If giving a full recipe, use exactly these headers:
+## [Recipe Name]
+**Time:** X minutes
+### Ingredients
+- item
+### Steps
+1. step
+For all other responses — suggestions, follow-ups, substitutions — respond naturally without any headers.
 
 Conversation so far:
 {history_txt}
@@ -56,6 +94,34 @@ def chat_with_chef(
         inv=inv, history_txt=history_txt, user_message=user_message
     )
     return chat_text_only(prompt)
+
+
+def stream_chef_response(
+    user_message: str,
+    inventory: list[str],
+    history: list[dict],
+):
+    """Stream chef response tokens as they are generated.
+
+    Same prompt as chat_with_chef but yields tokens instead of
+    returning a full string. Use with st.write_stream() in the UI.
+
+    Args:
+        user_message: The user's latest message.
+        inventory: Current list of ingredients.
+        history: Conversation history (list of role/content dicts).
+
+    Yields:
+        Individual token strings from the model.
+    """
+    inv = _format_list(inventory)
+    history_txt = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in history[-6:]
+    )
+    prompt = RECIPE_PROMPT_TEMPLATE.format(
+        inv=inv, history_txt=history_txt, user_message=user_message
+    )
+    return generate_text_stream(prompt)
 
 
 def _normalize_ingredient(s: str) -> str:

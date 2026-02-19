@@ -4,6 +4,7 @@ Loads GB10_IP, OLLAMA_PORT, MODEL from .env and provides health check,
 vision (image + prompt), and text-only generation against the Ollama API.
 """
 
+import json
 import os
 
 import requests
@@ -61,6 +62,7 @@ def generate_with_image(prompt: str, image_base64: str) -> str:
                 "images": [image_base64],
                 "stream": False,
                 "keep_alive": -1,
+                "options": {"temperature": 0},
             },
             timeout=60,
         )
@@ -100,6 +102,46 @@ def generate_text(prompt: str) -> str:
         return resp.json()["response"]
     except Exception as e:
         raise Exception(f"Text API failed: {e}") from e
+
+
+def generate_text_stream(prompt: str):
+    """Yield response tokens from the model as they are generated.
+
+    Uses stream=True on the Ollama API and yields each token string
+    as it arrives. Called by: core/recipe when streaming chef responses.
+
+    Args:
+        prompt: Text prompt for the model.
+
+    Yields:
+        Individual token strings from the model response.
+
+    Raises:
+        Exception: With message "Text stream API failed: {e}" on error.
+    """
+    try:
+        resp = requests.post(
+            f"{BASE_URL}/api/generate",
+            json={
+                "model": CHAT_MODEL,
+                "prompt": prompt,
+                "stream": True,
+                "keep_alive": -1,
+            },
+            stream=True,
+            timeout=120,
+        )
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if line:
+                chunk = json.loads(line)
+                token = chunk.get("response", "")
+                if token:
+                    yield token
+                if chunk.get("done"):
+                    break
+    except Exception as e:
+        raise Exception(f"Text stream API failed: {e}") from e
 
 
 if __name__ == "__main__":
