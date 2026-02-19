@@ -9,6 +9,7 @@ from PIL import Image
 import io
 from pathlib import Path
 from utils.ollama_client import generate_text
+from core.shopping_list import generate_shopping_list_json  
 
 from utils.ollama_client import generate_with_image
 # from core.recipe import chat_with_chef
@@ -45,6 +46,13 @@ if "pending_scan" not in st.session_state:
     st.session_state.pending_scan = None
 if "last_scanned_hash" not in st.session_state:
     st.session_state.last_scanned_hash = None
+if "shopping_list" not in st.session_state:
+    st.session_state.shopping_list = None
+if "shopping_list_for" not in st.session_state:
+    st.session_state.shopping_list_for = ""
+if "show_shopping_input" not in st.session_state:
+    st.session_state.show_shopping_input = False
+
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
@@ -61,7 +69,7 @@ if not inventory:
     st.info("Your fridge is empty. Scan a photo below to add ingredients.")
 else:
     for item in inventory:
-        col1, col2 = st.columns([6, 1])
+        col1, col2 = st.columns([8, 1])
         col1.write(f"• {item}")
         if col2.button("✕", key=f"remove_{item}"):
             inventory.remove(item)
@@ -213,14 +221,138 @@ ASSISTANT:
 """
 
 
+
+
 if not current_inventory:
     st.warning("Scan some ingredients first — then ask me what to cook.")
 else:
-    col1, col2 = st.columns([8, 1])
-    col1.caption(f"Llama 3 knows you have {len(current_inventory)} ingredients. Just ask naturally.")
-    if col2.button("🗑️", help="Clear chat", disabled=not st.session_state.chat_history):
+    
+
+    col1, col2, col3 = st.columns([7, 1, 1])
+    col1.caption(f"🧑‍🍳 {len(current_inventory)} ingredients in your fridge. Ask me anything.")
+
+    # Shopping list toggle button — same size as clear chat
+    if col2.button("🛒", help="Generate shopping list"):
+        st.session_state.show_shopping_input = not st.session_state.show_shopping_input
+
+    # Clear chat button
+    if col3.button("🗑️", help="Clear chat", disabled=not st.session_state.chat_history):
         st.session_state.chat_history = []
         st.rerun()
+
+    # Shopping list input — only shown when toggled
+    if st.session_state.show_shopping_input:
+        with st.container(border=True):
+            dish_query = st.text_input(
+                "🛒 What dish do you want to shop for?",
+                value=st.session_state.shopping_list_for,
+                placeholder="e.g., mapo tofu, pasta carbonara",
+            )
+            col_a, col_b = st.columns([3, 1])
+            if col_a.button("✅ Build shopping list", disabled=not dish_query.strip(), use_container_width=True):
+                with st.spinner("Building shopping list..."):
+                    try:
+                        data = generate_shopping_list_json(
+                            user_message=dish_query,
+                            inventory=current_inventory,
+                            history=st.session_state.chat_history,
+                        )
+                        st.session_state.shopping_list = data
+                        st.session_state.shopping_list_for = dish_query
+                        st.session_state.show_shopping_input = False
+                    except Exception as e:
+                        st.error(f"Shopping list failed: {e}")
+                        st.session_state.shopping_list = None
+            if col_b.button("✕ Cancel", use_container_width=True):
+                st.session_state.show_shopping_input = False
+                st.rerun()
+
+    if st.session_state.shopping_list:
+        data = st.session_state.shopping_list
+
+        with st.expander(f"🧾 Shopping List — {data.get('dish','')}", expanded=True):
+            missing = data.get("missing_items", [])
+            optional = data.get("optional_items", [])
+            already_have = data.get("already_have", [])
+            notes = data.get("notes", [])
+
+            st.markdown("**Missing (must buy):**")
+            if not missing:
+                st.write("None 🎉")
+            else:
+                df_missing = pd.DataFrame(missing)
+                st.dataframe(df_missing, use_container_width=True, hide_index=True)
+
+            st.markdown("**Optional (nice to have):**")
+            if optional:
+                df_opt = pd.DataFrame(optional)
+                st.dataframe(df_opt, use_container_width=True, hide_index=True)
+            else:
+                st.write("None")
+
+            if already_have:
+                st.markdown("**Already have:** " + ", ".join(already_have))
+
+            if notes:
+                st.markdown("**Notes:**")
+                for n in notes:
+                    st.write(f"- {n}")
+
+            # --- Exports ---
+            # CSV: only missing+optional (export-friendly)
+            export_rows = []
+            for row in missing:
+                export_rows.append({**row, "list_type": "missing"})
+            for row in optional:
+                export_rows.append({**row, "list_type": "optional"})
+
+            df_export = pd.DataFrame(export_rows)
+            csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+
+            # TXT: simple checklist
+            txt_lines = []
+            txt_lines.append(f"Shopping List for: {data.get('dish','')}")
+            txt_lines.append("")
+            txt_lines.append("MISSING:")
+            for r in missing:
+                q = r.get("quantity")
+                u = r.get("unit")
+                qty = f"{q} {u}".strip() if q is not None else (u or "").strip()
+                qty = f" ({qty})" if qty else ""
+                txt_lines.append(f"- {r.get('name','')}{qty}")
+            txt_lines.append("")
+            txt_lines.append("OPTIONAL:")
+            for r in optional:
+                q = r.get("quantity")
+                u = r.get("unit")
+                qty = f"{q} {u}".strip() if q is not None else (u or "").strip()
+                qty = f" ({qty})" if qty else ""
+                txt_lines.append(f"- {r.get('name','')}{qty}")
+            txt_lines.append("")
+            if already_have:
+                txt_lines.append("ALREADY HAVE: " + ", ".join(already_have))
+            txt = "\n".join(txt_lines)
+
+            c1, c2, c3 = st.columns([1, 1, 1])
+            c1.download_button(
+                "⬇️ Download CSV",
+                data=csv_bytes,
+                file_name="shopping_list.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+            c2.download_button(
+                "⬇️ Download TXT",
+                data=txt.encode("utf-8"),
+                file_name="shopping_list.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+            if c3.button("🧹 Clear list", use_container_width=True):
+                st.session_state.shopping_list = None
+                st.session_state.shopping_list_for = ""
+                st.rerun()
+
 
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"]):
