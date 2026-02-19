@@ -1,17 +1,19 @@
 import base64
 import hashlib
+import json
+import re
 
 import streamlit as st
 import requests
 from PIL import Image
 import io
-import json
 from pathlib import Path
 from utils.ollama_client import generate_text
 
 from utils.ollama_client import generate_with_image
-from core.recipe import chat_with_chef
-from core.recipe import ingredients_to_recipe
+# from core.recipe import chat_with_chef
+# from core.recipe import ingredients_to_recipe
+from core.recipe import stream_chef_response
 
 
 # ── INVENTORY HELPERS ─────────────────────────────────────────────────────────
@@ -106,7 +108,7 @@ elif input_mode == "📷 Use camera":
         image = Image.open(io.BytesIO(image_bytes))
 
 if image is not None:
-    st.image(image, caption="Fridge scan", use_container_width=True)
+    st.image(image, caption="Fridge scan", width='stretch')
 
 if image_bytes is not None:
     img_hash = hashlib.md5(image_bytes).hexdigest()
@@ -114,12 +116,41 @@ if image_bytes is not None:
         with st.spinner("Scanning ingredients..."):
             image_b64 = base64.b64encode(image_bytes).decode("utf-8")
             prompt = (
-                "List every food item you see in this fridge image. "
-                "Return as comma-separated list only. No extra text."
+                "You are a food inventory scanner. Look at this fridge image carefully.\n\n"
+                "List only the food items you can clearly and confidently identify. "
+                "Be conservative — if you are not sure, leave it out.\n\n"
+                "Rules:\n"
+                "- Output ONLY a JSON array of strings, nothing else\n"
+                "- Each string is a single food item (e.g. \"apple\", \"milk\", \"eggs\")\n"
+                "- No adjectives, quantities, or descriptions\n"
+                "- No packaging, containers, or kitchen tools\n"
+                "- No items you are uncertain about\n\n"
+                "Example: [\"apple\", \"milk\", \"eggs\", \"cheddar cheese\"]\n\n"
+                "JSON array:"
             )
             try:
                 raw = generate_with_image(prompt, image_b64)
-                new_items = [item.strip() for item in raw.split(",") if item.strip()]
+                # Try JSON parsing first, fall back to comma-split
+                new_items = []
+                match = re.search(r'\[.*\]', raw, re.DOTALL)
+                if match:
+                    try:
+                        parsed = json.loads(match.group())
+                        new_items = [
+                            str(item).strip().lower()
+                            for item in parsed
+                            if str(item).strip()
+                        ]
+                    except json.JSONDecodeError:
+                        pass
+                if not new_items:
+                    # Strip JSON array syntax before splitting
+                    cleaned = raw.strip().lstrip("[").rstrip("]")
+                    new_items = [
+                        item.strip().strip("\"'").lower()
+                        for item in cleaned.split(",")
+                        if item.strip().strip("\"'")
+                    ]
                 existing = st.session_state.pending_scan or []
                 seen = {i.lower() for i in existing}
                 for item in new_items:
@@ -203,14 +234,13 @@ else:
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            with st.spinner("Chef is thinking..."):
-                
-                assistant_response = chat_with_chef(
+            assistant_response = st.write_stream(
+                stream_chef_response(
                     user_message=user_input,
                     inventory=current_inventory,
-                    history=st.session_state.chat_history[:-1],  # exclude current user message
+                    history=st.session_state.chat_history[:-1],
                 )
-                st.markdown(assistant_response)
+            )
 
         st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
         st.rerun()
