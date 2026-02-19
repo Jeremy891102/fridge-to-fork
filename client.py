@@ -1,4 +1,5 @@
 import base64
+import hashlib
 
 import streamlit as st
 import requests
@@ -38,6 +39,10 @@ st.set_page_config(
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "pending_scan" not in st.session_state:
+    st.session_state.pending_scan = None
+if "last_scanned_hash" not in st.session_state:
+    st.session_state.last_scanned_hash = None
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
@@ -103,27 +108,45 @@ elif input_mode == "📷 Use camera":
 if image is not None:
     st.image(image, caption="Fridge scan", use_container_width=True)
 
-if st.button("🔍 Scan Ingredients", type="primary", disabled=image_bytes is None):
-    assert image_bytes is not None
-    with st.spinner("Scanning ingredients..."):
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        prompt = (
-            "List every food item you see in this fridge image. "
-            "Return as comma-separated list only. No extra text."
-        )
-        new_items: list = []
-        try:
-            raw = generate_with_image(prompt, image_b64)
-            new_items = [item.strip() for item in raw.split(",") if item.strip()]
-        except Exception as e:
-            st.error(f"Scan failed: {e}")
-            st.stop()
+if image_bytes is not None:
+    img_hash = hashlib.md5(image_bytes).hexdigest()
+    if img_hash != st.session_state.last_scanned_hash:
+        with st.spinner("Scanning ingredients..."):
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+            prompt = (
+                "List every food item you see in this fridge image. "
+                "Return as comma-separated list only. No extra text."
+            )
+            try:
+                raw = generate_with_image(prompt, image_b64)
+                new_items = [item.strip() for item in raw.split(",") if item.strip()]
+                existing = st.session_state.pending_scan or []
+                seen = {i.lower() for i in existing}
+                for item in new_items:
+                    if item.lower() not in seen:
+                        existing.append(item)
+                        seen.add(item.lower())
+                st.session_state.pending_scan = existing
+                st.session_state.last_scanned_hash = img_hash
+            except Exception as e:
+                st.error(f"Scan failed: {e}")
+                st.stop()
 
-    existing = load_inventory()
-    merged = merge_ingredients(existing, new_items)
-    save_inventory(merged)
-    st.success(f"✅ {len(new_items)} ingredients detected. Inventory now has {len(merged)} items.")
-    st.rerun()
+if st.session_state.pending_scan is not None:
+    st.markdown("**Review detected ingredients — uncheck anything wrong:**")
+    checked = {
+        item: st.checkbox(item, value=True, key=f"scan_{item}")
+        for item in st.session_state.pending_scan
+    }
+    confirmed = [item for item, selected in checked.items() if selected]
+
+    if st.button("✅ Add to Inventory", type="primary", disabled=not confirmed):
+        existing = load_inventory()
+        merged = merge_ingredients(existing, confirmed)
+        save_inventory(merged)
+        st.session_state.pending_scan = None
+        st.success(f"✅ {len(confirmed)} ingredients added. Inventory now has {len(merged)} items.")
+        st.rerun()
 
 st.divider()
 
@@ -162,7 +185,11 @@ ASSISTANT:
 if not current_inventory:
     st.warning("Scan some ingredients first — then ask me what to cook.")
 else:
-    st.caption(f"Llama 3 knows you have {len(current_inventory)} ingredients. Just ask naturally.")
+    col1, col2 = st.columns([8, 1])
+    col1.caption(f"Llama 3 knows you have {len(current_inventory)} ingredients. Just ask naturally.")
+    if col2.button("🗑️", help="Clear chat", disabled=not st.session_state.chat_history):
+        st.session_state.chat_history = []
+        st.rerun()
 
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"]):
@@ -186,3 +213,4 @@ else:
                 st.markdown(assistant_response)
 
         st.session_state.chat_history.append({"role": "assistant", "content": assistant_response})
+        st.rerun()
