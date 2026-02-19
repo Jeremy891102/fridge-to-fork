@@ -115,6 +115,8 @@ if image_bytes is not None:
                         seen.add(item.lower())
                 st.session_state.pending_scan = existing
                 st.session_state.last_scanned_hash = img_hash
+                if not new_items:
+                    st.warning("No ingredients detected. Check that YOLO_SERVICE_URL in .env points to GB10 (e.g. http://100.75.28.113:8001) and the service is running, or try another photo.")
             except Exception as e:
                 st.error(f"Scan failed: {e}")
                 st.stop()

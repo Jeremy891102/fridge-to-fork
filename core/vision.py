@@ -4,12 +4,12 @@ All ingredient detection goes through the YOLO service (no LLaVA).
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple, Union
 
 from utils.yolo_client import detect_ingredients, detect_ingredients_from_path
 
 
-def image_to_ingredients(image_path: str | Path) -> list[str]:
+def image_to_ingredients(image_path: Union[str, Path]) -> List[str]:
     """Extract a list of ingredients from a photo using YOLO World on GB10.
 
     Args:
@@ -21,22 +21,19 @@ def image_to_ingredients(image_path: str | Path) -> list[str]:
     return detect_ingredients_from_path(image_path)
 
 
-def extract_ingredients(image_bytes: bytes) -> list[str]:
+def extract_ingredients(image_bytes: bytes) -> List[str]:
     """Extract ingredients from raw image bytes (e.g. upload). Used by server/APIs.
 
     Args:
         image_bytes: Raw image bytes.
 
     Returns:
-        List of ingredient names.
+        List of ingredient names. Raises on connection/API errors so the client can show them.
     """
-    try:
-        return detect_ingredients(image_bytes)
-    except Exception:
-        return []
+    return detect_ingredients(image_bytes)
 
 
-def validate_image(image_path: str | Path) -> tuple[bool, Optional[str]]:
+def validate_image(image_path: Union[str, Path]) -> Tuple[bool, Optional[str]]:
     """Validate that an image file is suitable for processing."""
     return True, None
 

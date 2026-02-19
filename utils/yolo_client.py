@@ -7,6 +7,7 @@ detected ingredient labels.
 import base64
 import os
 from pathlib import Path
+from typing import List, Union
 
 import requests
 from dotenv import load_dotenv
@@ -18,7 +19,7 @@ DETECT_ENDPOINT: str = f"{YOLO_SERVICE_URL.rstrip('/')}/detect"
 TIMEOUT: int = 60
 
 
-def detect_ingredients(image_bytes: bytes) -> list[str]:
+def detect_ingredients(image_bytes: bytes) -> List[str]:
     """Send image to GB10 YOLO service and return detected ingredient labels.
 
     Args:
@@ -39,7 +40,7 @@ def detect_ingredients(image_bytes: bytes) -> list[str]:
     return [str(x).strip().lower() for x in labels if x]
 
 
-def detect_ingredients_from_path(image_path: str | Path) -> list[str]:
+def detect_ingredients_from_path(image_path: Union[str, Path]) -> List[str]:
     """Load image from file and run YOLO detection.
 
     Args:
