@@ -1,10 +1,9 @@
-"""Core logic: vision (image → ingredients) and recipe (ingredients → recipe).
+"""Core logic: recipe generation (ingredients → recipe).
 
-This package contains the core business logic for converting images to
-ingredient lists and generating recipes from ingredients.
+This package contains the core business logic for generating recipes
+from ingredient lists.
 """
 
 from core.recipe import ingredients_to_recipe
-from core.vision import image_to_ingredients
 
-__all__ = ["image_to_ingredients", "ingredients_to_recipe"]
+__all__ = ["ingredients_to_recipe"]

@@ -6,45 +6,12 @@ suggestions using the Ollama text generation API.
 
 from typing import Optional
 from utils.ollama_client import generate_text as chat_text_only
-from utils.ollama_client import generate_text_stream
+from utils.ollama_client import generate_chat_stream
 
 import re
 
-# Recipe prompt template
-
-
-# RECIPE_PROMPT_TEMPLATE = """
-# You are an experienced home chef who thinks practically and creatively.
-#
-# You have access to the following current ingredients:
-# {inv}
-#
-# You can:
-# - Create recipes (simple or detailed)
-# - Suggest substitutions
-# - Recommend storage methods or shelf life
-# - Suggest meal ideas based on what's available
-# - Answer general food-related questions
-#
-# Guidelines:
-# - Prioritize using available ingredients.
-# - You may assume common pantry staples (salt, pepper, oil, sugar, flour, etc.) when reasonable.
-# - If something essential is missing, clearly explain what's needed and suggest alternatives.
-# - Respond naturally, like a real chef speaking to a home cook.
-# - Adapt detail level to the user's question — short answers for simple questions, full recipes when asked.
-# - If the question is not food-related, politely redirect to cooking topics.
-#
-# If giving a recipe, structure it clearly (name, ingredients, steps), but you do NOT need to follow a rigid template.
-#
-# Conversation so far:
-# {history_txt}
-#
-# USER: {user_message}
-# ASSISTANT:
-# """
-
-RECIPE_PROMPT_TEMPLATE = """
-You are an experienced home chef who thinks practically and creatively.
+# System prompt template — inventory injected at call time, no history/user message here.
+CHEF_SYSTEM_PROMPT = """You are an experienced home chef who thinks practically and creatively.
 
 You have access to the following current ingredients:
 {inv}
@@ -57,12 +24,13 @@ You can:
 - Answer general food-related questions
 
 Guidelines:
-- Prioritize using available ingredients.
-- You may assume common pantry staples (salt, pepper, oil, sugar, flour, etc.) when reasonable.
-- If something essential is missing, clearly explain what's needed and suggest alternatives.
+- Suggest the best recipe you can. Prefer available ingredients, but you may include up to 2 additional non-pantry ingredients if they meaningfully improve the dish — the user's shopping list will capture what they need to buy.
+- Always list ALL ingredients a full recipe needs in the ### Ingredients section, including any that require a shopping trip.
+- You may assume common pantry staples (salt, pepper, oil, sugar, flour, butter, etc.) are always on hand — do not list them as things to buy.
 - Respond naturally, like a real chef speaking to a home cook.
 - Adapt detail level to the user's question — short answers for simple questions, full recipes when asked.
 - If the question is not food-related, politely redirect to cooking topics.
+- If the user signals they are done (e.g., "ok", "done", "thanks", "bye", "all good", "got it"), respond with a brief, warm closing line and do NOT ask any follow-up questions.
 
 If giving a full recipe, use exactly these headers:
 ## [Recipe Name]
@@ -71,57 +39,61 @@ If giving a full recipe, use exactly these headers:
 - item
 ### Steps
 1. step
-For all other responses — suggestions, follow-ups, substitutions — respond naturally without any headers.
-
-Conversation so far:
-{history_txt}
-
-USER: {user_message}
-ASSISTANT:
-"""
+For all other responses — suggestions, follow-ups, substitutions — respond naturally without any headers."""
 
 
-def chat_with_chef(
+def _build_messages(
     user_message: str,
     inventory: list[str],
     history: list[dict],
-) -> str:
+    dietary_restrictions: list[str] | None = None,
+) -> list[dict]:
+    """Build a properly role-separated message list for /api/chat.
+
+    Returns a list with:
+      - one system message (chef persona + inventory, + dietary restrictions if any)
+      - up to 6 prior turns from history as user/assistant messages
+      - the current user message
+    """
     inv = _format_list(inventory)
-    history_txt = "\n".join(
-        f"{m['role'].upper()}: {m['content']}" for m in history[-6:]
-    )
-    prompt = RECIPE_PROMPT_TEMPLATE.format(
-        inv=inv, history_txt=history_txt, user_message=user_message
-    )
-    return chat_text_only(prompt)
+    system_content = CHEF_SYSTEM_PROMPT.format(inv=inv)
+    # ── DIETARY RESTRICTIONS: injected into system message ────────────────────
+    if dietary_restrictions:
+        system_content += (
+            f"\n\nDietary restrictions (STRICT — never suggest or include these in any recipe): "
+            + ", ".join(dietary_restrictions)
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+    messages = [{"role": "system", "content": system_content}]
+    for m in history[-6:]:
+        messages.append({"role": m["role"], "content": m["content"]})
+    messages.append({"role": "user", "content": user_message})
+    return messages
 
 
 def stream_chef_response(
     user_message: str,
     inventory: list[str],
     history: list[dict],
+    dietary_restrictions: list[str] | None = None,
 ):
-    """Stream chef response tokens as they are generated.
+    """Stream chef response tokens using the /api/chat endpoint.
 
-    Same prompt as chat_with_chef but yields tokens instead of
-    returning a full string. Use with st.write_stream() in the UI.
+    Builds role-separated messages (system / user / assistant) so the model
+    receives proper turn structure instead of a flat prompt string.
+    Use with st.write_stream() in the UI.
 
     Args:
         user_message: The user's latest message.
         inventory: Current list of ingredients.
         history: Conversation history (list of role/content dicts).
+        dietary_restrictions: Optional list of restrictions (e.g. ["Vegan"]).
 
     Yields:
         Individual token strings from the model.
     """
-    inv = _format_list(inventory)
-    history_txt = "\n".join(
-        f"{m['role'].upper()}: {m['content']}" for m in history[-6:]
-    )
-    prompt = RECIPE_PROMPT_TEMPLATE.format(
-        inv=inv, history_txt=history_txt, user_message=user_message
-    )
-    return generate_text_stream(prompt)
+    messages = _build_messages(user_message, inventory, history, dietary_restrictions)
+    return generate_chat_stream(messages)
 
 
 def _normalize_ingredient(s: str) -> str:
@@ -133,6 +105,42 @@ def _normalize_ingredient(s: str) -> str:
 
 def _format_list(items: list[str]) -> str:
     return "\n".join(f"- {x}" for x in items)
+
+
+# ── SHOPPING LIST: extract ingredient names from a recipe ─────────────────────
+def extract_recipe_ingredients(text: str) -> list[str]:
+    """Parse the ### Ingredients section of a recipe and return clean names.
+
+    Strips bullet markers, quantities, and units so only the ingredient name
+    remains. Returns [] if no ### Ingredients section is found.
+
+    Used by the shopping list feature in client.py — safe to remove.
+    """
+    match = re.search(r'### Ingredients\s*\n(.*?)(?=###|\Z)', text, re.DOTALL)
+    if not match:
+        return []
+    ingredients = []
+    for line in match.group(1).strip().splitlines():
+        line = line.strip().lstrip('-•* \t')
+        if not line:
+            continue
+        line = re.sub(r'^\d[\d/\-\.]*\s*', '', line)  # strip leading quantity
+        line = re.sub(
+            r'\b(cups?|tablespoons?|tbsps?|teaspoons?|tsps?|grams?|g|kg|ml'
+            r'|oz|lbs?|cloves?|slices?|pieces?|pinch|handful|bunch)\s+(of\s+)?',
+            '', line, flags=re.IGNORECASE,
+        )
+        # strip qualifiers like ", to taste", "(optional)", "as needed"
+        line = re.sub(
+            r',?\s*(to taste|optional|as needed|to serve|for serving|for garnish).*$',
+            '', line, flags=re.IGNORECASE,
+        )
+        line = line.strip().lower()
+        if line:
+            ingredients.append(line)
+    return ingredients
+# ──────────────────────────────────────────────────────────────────────────────
+
 
 # simple check for basic recipe structure; we can add more complex validation later
 def _looks_valid(text: str) -> bool:
@@ -222,9 +230,14 @@ def ingredients_to_recipe(
 
 
 
-    prompt = RECIPE_PROMPT_TEMPLATE.format(ingredients=ingredient_list,
-                                           dietary_restrictions=restrictions_str,
-                                           cuisine_type=cuisine_str)
+    # prompt = RECIPE_PROMPT_TEMPLATE.format(ingredients=ingredient_list,
+    #                                        dietary_restrictions=restrictions_str,
+    #                                        cuisine_type=cuisine_str)
+    prompt = CHEF_SYSTEM_PROMPT.format(inv=ingredient_list) + (
+        f"\n\nDietary restrictions: {restrictions_str}"
+        f"\nCuisine preference: {cuisine_str}"
+        f"\n\nSuggest one recipe using these ingredients."
+    )
     
 
     # 3) Call the model to generate a recipe
